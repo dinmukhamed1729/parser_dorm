@@ -16,18 +16,18 @@ logger.addHandler(console_handler)
 
 BASE_URL = "https://www.drom.ru/catalog/"
 FILENAME = "parser_dorm.xlsx"
-THREAD_POOL_SIZE = 3  # Количество потоков
-SAVE_INTERVAL = 20  # Интервал сохранения данных в секундах
-MAX_RETRIES = 50  # Максимальное количество попыток при ошибке
-REQUEST_TIMEOUT = 10  # Таймаут запроса в секундах
-RETRY_DELAY = 5  # Задержка между попытками при ошибке в секундах
+THREAD_POOL_SIZE = 16  # Количество потоков
+SAVE_INTERVAL = 300  # Интервал сохранения данных в секундах
+MAX_RETRIES = 30  # Максимальное количество попыток при ошибке
+REQUEST_TIMEOUT = 3  # Таймаут запроса в секундах
+RETRY_DELAY = 3  # Задержка между попытками при ошибке в секундах
 
-# Глобальный список для хранения данных
+
 all_data = []
 last_save_time = time.time()
 
-# Блокировка для безопасной записи в файл
 file_lock = threading.Lock()
+
 
 def fetch_url(url):
     """
@@ -55,6 +55,7 @@ def fetch_url(url):
     logging.error(f"Не удалось выполнить запрос к {url} после {MAX_RETRIES} попыток")
     return None
 
+
 def parse_catalog_page(url):
     logging.info(f"Запрос к каталогу: {url}")
     response = fetch_url(url)
@@ -69,7 +70,8 @@ def parse_catalog_page(url):
                               attrs={"aria-current": "true"})
     car_type = car_type_elem.get_text() if car_type_elem else "Неизвестно"
 
-    car_brand_links = []
+    car_brand_links = soup.find_all("a", attrs={"data-ftid": "component_cars-list-item_hidden-link"})
+
     if car_list_div:
         noscript_tag = car_list_div.find("noscript")
         if noscript_tag:
@@ -92,6 +94,7 @@ def parse_catalog_page(url):
                 future.result()
             except Exception as e:
                 logging.error(f"Ошибка при обработке страницы бренда: {e}")
+
 
 def parse_brand_page(car_brand_url, data):
     logging.info(f"Запрос к странице бренда: {car_brand_url}")
@@ -120,6 +123,7 @@ def parse_brand_page(car_brand_url, data):
                 future.result()
             except Exception as e:
                 logging.error(f"Ошибка при обработке страницы модели: {e}")
+
 
 def parse_car_model_page(car_model_url, data):
     logging.info(f"Запрос к странице модели автомобиля: {car_model_url}")
@@ -151,13 +155,15 @@ def parse_car_model_page(car_model_url, data):
                 generation_data = country_data.copy()
                 generation_data["Описание 1"] = description
 
-                futures.append(executor.submit(parse_car_generation_page, urljoin(car_model_url, car_generation_url), generation_data))
+                futures.append(executor.submit(parse_car_generation_page, urljoin(car_model_url, car_generation_url),
+                                               generation_data))
 
         for future in as_completed(futures):
             try:
                 future.result()
             except Exception as e:
                 logging.error(f"Ошибка при обработке страницы поколения: {e}")
+
 
 def parse_car_generation_page(car_generation_url, data):
     global last_save_time
@@ -177,7 +183,8 @@ def parse_car_generation_page(car_generation_url, data):
     data["Рекомендованная цена, руб."] = '-'
     data["Марка двигателя"] = '-'
     data["Марка кузова"] = '-'
-
+    data["Рекомендованная цена, тыс. йен"] = "-"
+    data["Цена*"] = "-"
     if not table:
         with file_lock:
             all_data.append(data.copy())
@@ -212,12 +219,14 @@ def parse_car_generation_page(car_generation_url, data):
         data["Марка двигателя"] = '-'
         data["Марка кузова"] = '-'
         data["Цена*"] = "-"
+        data["Рекомендованная цена, тыс. йен"] = "-"
     data["Общее"] = "-"
 
     # Периодическое сохранение данных
     if time.time() - last_save_time >= SAVE_INTERVAL:
         save_data_to_excel()
         last_save_time = time.time()
+
 
 def save_data_to_excel():
     with file_lock:
@@ -227,6 +236,7 @@ def save_data_to_excel():
             logging.info(f"Данные сохранены в файл {FILENAME}")
         except Exception as e:
             logging.error(f"Ошибка при сохранении файла: {e}")
+
 
 if __name__ == "__main__":
     try:
